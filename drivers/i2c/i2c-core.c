@@ -379,7 +379,7 @@ static int i2c_check_addr_validity(unsigned short addr)
 	 *  0x78-0x7b  10-bit slave addressing
 	 *  0x7c-0x7f  Reserved for future purposes
 	 */
-#if !defined(CONFIG_ARCH_SUN4I) && !defined(CONFIG_ARCH_SUN5I)
+#if !defined(CONFIG_ARCH_SUN4I)
 	if (addr < 0x08 || addr > 0x77)
 #else
     if (addr < 0x03 || addr > 0x77)
@@ -1482,7 +1482,7 @@ static int i2c_detect_address(struct i2c_client *temp_client,
 	if (i2c_check_addr_busy(adapter, addr))
 		return 0;
 
-#if !defined(CONFIG_ARCH_SUN4I) && !defined(CONFIG_ARCH_SUN5I)
+#if !defined(CONFIG_ARCH_SUN4I)
 	/* Make sure there is something at this address */
 	if (!i2c_default_probe(adapter, addr))
 		return 0;

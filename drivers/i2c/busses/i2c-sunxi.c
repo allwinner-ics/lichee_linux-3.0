@@ -895,8 +895,6 @@ static int i2c_sunxi_probe(struct platform_device *dev)
 	struct resource *res = NULL;
 #if defined CONFIG_ARCH_SUN4I
 	struct sun4i_i2c_platform_data *pdata = NULL;
-#elif defined CONFIG_ARCH_SUN5I
-    struct sun5i_i2c_platform_data *pdata = NULL;
 #endif
 	char *i2c_clk[] ={"twi0","twi1","twi2"};
 	char *i2c_pclk[] ={"apb_twi0","apb_twi1","apb_twi2"};
@@ -925,8 +923,6 @@ static int i2c_sunxi_probe(struct platform_device *dev)
 	}
 #if defined CONFIG_ARCH_SUN4I
 	strlcpy(i2c->adap.name, "sun4i-i2c", sizeof(i2c->adap.name));
-#elif defined CONFIG_ARCH_SUN5I
-    strlcpy(i2c->adap.name, "sun5i-i2c", sizeof(i2c->adap.name));
 #endif
 	i2c->adap.owner   = THIS_MODULE;
 	i2c->adap.nr      = pdata->bus_num;
@@ -958,8 +954,6 @@ static int i2c_sunxi_probe(struct platform_device *dev)
 
 #if defined CONFIG_ARCH_SUN4I
 	snprintf(i2c->adap.name, sizeof(i2c->adap.name), "sun4i-i2c.%u", i2c->adap.nr);
-#elif defined CONFIG_ARCH_SUN5I
-    snprintf(i2c->adap.name, sizeof(i2c->adap.name), "sun5i-i2c.%u", i2c->adap.nr);
 #endif
 
 	i2c->base_addr = ioremap(res->start, resource_size(res));
@@ -1135,8 +1129,6 @@ static struct platform_driver i2c_sunxi_driver = {
 	.driver		= {
 #if defined CONFIG_ARCH_SUN4I
 		.name	= "sun4i-i2c",
-#elif defined CONFIG_ARCH_SUN5I
-        .name	= "sun5i-i2c",
 #endif
 		.owner	= THIS_MODULE,
 	},
