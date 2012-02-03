@@ -35,175 +35,40 @@
 #include <linux/crc32.h>
 #include <linux/usb/usbnet.h>
 #include <linux/slab.h>
+#include "asix.h"
 
-#define DRIVER_VERSION "14-Jun-2006"
-static const char driver_name [] = "asix";
+#define DRIVER_VERSION "26-Sep-2011"
+#define DRIVER_NAME "asix"
+
+/* configuration of maximum bulk in size */
+static int bsize = AX88772B_MAX_BULKIN_16K;
+module_param(bsize, int, 0);
+MODULE_PARM_DESC(bsize, "Maximum transfer size per bulk");
 
 /* ASIX AX8817X based USB 2.0 Ethernet Devices */
-
-#define AX_CMD_SET_SW_MII		0x06
-#define AX_CMD_READ_MII_REG		0x07
-#define AX_CMD_WRITE_MII_REG		0x08
-#define AX_CMD_SET_HW_MII		0x0a
-#define AX_CMD_READ_EEPROM		0x0b
-#define AX_CMD_WRITE_EEPROM		0x0c
-#define AX_CMD_WRITE_ENABLE		0x0d
-#define AX_CMD_WRITE_DISABLE		0x0e
-#define AX_CMD_READ_RX_CTL		0x0f
-#define AX_CMD_WRITE_RX_CTL		0x10
-#define AX_CMD_READ_IPG012		0x11
-#define AX_CMD_WRITE_IPG0		0x12
-#define AX_CMD_WRITE_IPG1		0x13
-#define AX_CMD_READ_NODE_ID		0x13
-#define AX_CMD_WRITE_NODE_ID		0x14
-#define AX_CMD_WRITE_IPG2		0x14
-#define AX_CMD_WRITE_MULTI_FILTER	0x16
-#define AX88172_CMD_READ_NODE_ID	0x17
-#define AX_CMD_READ_PHY_ID		0x19
-#define AX_CMD_READ_MEDIUM_STATUS	0x1a
-#define AX_CMD_WRITE_MEDIUM_MODE	0x1b
-#define AX_CMD_READ_MONITOR_MODE	0x1c
-#define AX_CMD_WRITE_MONITOR_MODE	0x1d
-#define AX_CMD_READ_GPIOS		0x1e
-#define AX_CMD_WRITE_GPIOS		0x1f
-#define AX_CMD_SW_RESET			0x20
-#define AX_CMD_SW_PHY_STATUS		0x21
-#define AX_CMD_SW_PHY_SELECT		0x22
-
-#define AX_MONITOR_MODE			0x01
-#define AX_MONITOR_LINK			0x02
-#define AX_MONITOR_MAGIC		0x04
-#define AX_MONITOR_HSFS			0x10
-
-/* AX88172 Medium Status Register values */
-#define AX88172_MEDIUM_FD		0x02
-#define AX88172_MEDIUM_TX		0x04
-#define AX88172_MEDIUM_FC		0x10
-#define AX88172_MEDIUM_DEFAULT \
-		( AX88172_MEDIUM_FD | AX88172_MEDIUM_TX | AX88172_MEDIUM_FC )
-
-#define AX_MCAST_FILTER_SIZE		8
-#define AX_MAX_MCAST			64
-
-#define AX_SWRESET_CLEAR		0x00
-#define AX_SWRESET_RR			0x01
-#define AX_SWRESET_RT			0x02
-#define AX_SWRESET_PRTE			0x04
-#define AX_SWRESET_PRL			0x08
-#define AX_SWRESET_BZ			0x10
-#define AX_SWRESET_IPRL			0x20
-#define AX_SWRESET_IPPD			0x40
-
-#define AX88772_IPG0_DEFAULT		0x15
-#define AX88772_IPG1_DEFAULT		0x0c
-#define AX88772_IPG2_DEFAULT		0x12
-
-/* AX88772 & AX88178 Medium Mode Register */
-#define AX_MEDIUM_PF		0x0080
-#define AX_MEDIUM_JFE		0x0040
-#define AX_MEDIUM_TFC		0x0020
-#define AX_MEDIUM_RFC		0x0010
-#define AX_MEDIUM_ENCK		0x0008
-#define AX_MEDIUM_AC		0x0004
-#define AX_MEDIUM_FD		0x0002
-#define AX_MEDIUM_GM		0x0001
-#define AX_MEDIUM_SM		0x1000
-#define AX_MEDIUM_SBP		0x0800
-#define AX_MEDIUM_PS		0x0200
-#define AX_MEDIUM_RE		0x0100
-
-#define AX88178_MEDIUM_DEFAULT	\
-	(AX_MEDIUM_PS | AX_MEDIUM_FD | AX_MEDIUM_AC | \
-	 AX_MEDIUM_RFC | AX_MEDIUM_TFC | AX_MEDIUM_JFE | \
-	 AX_MEDIUM_RE )
-
-#define AX88772_MEDIUM_DEFAULT	\
-	(AX_MEDIUM_FD | AX_MEDIUM_RFC | \
-	 AX_MEDIUM_TFC | AX_MEDIUM_PS | \
-	 AX_MEDIUM_AC | AX_MEDIUM_RE )
-
-/* AX88772 & AX88178 RX_CTL values */
-#define AX_RX_CTL_SO			0x0080
-#define AX_RX_CTL_AP			0x0020
-#define AX_RX_CTL_AM			0x0010
-#define AX_RX_CTL_AB			0x0008
-#define AX_RX_CTL_SEP			0x0004
-#define AX_RX_CTL_AMALL			0x0002
-#define AX_RX_CTL_PRO			0x0001
-#define AX_RX_CTL_MFB_2048		0x0000
-#define AX_RX_CTL_MFB_4096		0x0100
-#define AX_RX_CTL_MFB_8192		0x0200
-#define AX_RX_CTL_MFB_16384		0x0300
-
-#define AX_DEFAULT_RX_CTL	\
-	(AX_RX_CTL_SO | AX_RX_CTL_AB )
-
-/* GPIO 0 .. 2 toggles */
-#define AX_GPIO_GPO0EN		0x01	/* GPIO0 Output enable */
-#define AX_GPIO_GPO_0		0x02	/* GPIO0 Output value */
-#define AX_GPIO_GPO1EN		0x04	/* GPIO1 Output enable */
-#define AX_GPIO_GPO_1		0x08	/* GPIO1 Output value */
-#define AX_GPIO_GPO2EN		0x10	/* GPIO2 Output enable */
-#define AX_GPIO_GPO_2		0x20	/* GPIO2 Output value */
-#define AX_GPIO_RESERVED	0x40	/* Reserved */
-#define AX_GPIO_RSE		0x80	/* Reload serial EEPROM */
-
-#define AX_EEPROM_MAGIC		0xdeadbeef
-#define AX88172_EEPROM_LEN	0x40
-#define AX88772_EEPROM_LEN	0xff
-
-#define PHY_MODE_MARVELL	0x0000
-#define MII_MARVELL_LED_CTRL	0x0018
-#define MII_MARVELL_STATUS	0x001b
-#define MII_MARVELL_CTRL	0x0014
-
-#define MARVELL_LED_MANUAL	0x0019
-
-#define MARVELL_STATUS_HWCFG	0x0004
-
-#define MARVELL_CTRL_TXDELAY	0x0002
-#define MARVELL_CTRL_RXDELAY	0x0080
-
-/* This structure cannot exceed sizeof(unsigned long [5]) AKA 20 bytes */
-struct asix_data {
-	u8 multi_filter[AX_MCAST_FILTER_SIZE];
-	u8 mac_addr[ETH_ALEN];
-	u8 phymode;
-	u8 ledmode;
-	u8 eeprom_len;
-};
-
-struct ax88172_int_data {
-	__le16 res1;
-	u8 link;
-	__le16 res2;
-	u8 status;
-	__le16 res3;
-} __packed;
-
 static int asix_read_cmd(struct usbnet *dev, u8 cmd, u16 value, u16 index,
-			    u16 size, void *data)
+		u16 size, void *data)
 {
 	void *buf;
 	int err = -ENOMEM;
 
 	netdev_dbg(dev->net, "asix_read_cmd() cmd=0x%02x value=0x%04x index=0x%04x size=%d\n",
-		   cmd, value, index, size);
+			cmd, value, index, size);
 
 	buf = kmalloc(size, GFP_KERNEL);
 	if (!buf)
 		goto out;
 
 	err = usb_control_msg(
-		dev->udev,
-		usb_rcvctrlpipe(dev->udev, 0),
-		cmd,
-		USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
-		value,
-		index,
-		buf,
-		size,
-		USB_CTRL_GET_TIMEOUT);
+			dev->udev,
+			usb_rcvctrlpipe(dev->udev, 0),
+			cmd,
+			USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
+			value,
+			index,
+			buf,
+			size,
+			USB_CTRL_GET_TIMEOUT);
 	if (err == size)
 		memcpy(data, buf, size);
 	else if (err >= 0)
@@ -215,13 +80,13 @@ out:
 }
 
 static int asix_write_cmd(struct usbnet *dev, u8 cmd, u16 value, u16 index,
-			     u16 size, void *data)
+		u16 size, void *data)
 {
 	void *buf = NULL;
 	int err = -ENOMEM;
 
 	netdev_dbg(dev->net, "asix_write_cmd() cmd=0x%02x value=0x%04x index=0x%04x size=%d\n",
-		   cmd, value, index, size);
+			cmd, value, index, size);
 
 	if (data) {
 		buf = kmemdup(data, size, GFP_KERNEL);
@@ -230,15 +95,15 @@ static int asix_write_cmd(struct usbnet *dev, u8 cmd, u16 value, u16 index,
 	}
 
 	err = usb_control_msg(
-		dev->udev,
-		usb_sndctrlpipe(dev->udev, 0),
-		cmd,
-		USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
-		value,
-		index,
-		buf,
-		size,
-		USB_CTRL_SET_TIMEOUT);
+			dev->udev,
+			usb_sndctrlpipe(dev->udev, 0),
+			cmd,
+			USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
+			value,
+			index,
+			buf,
+			size,
+			USB_CTRL_SET_TIMEOUT);
 	kfree(buf);
 
 out:
@@ -252,28 +117,31 @@ static void asix_async_cmd_callback(struct urb *urb)
 
 	if (status < 0)
 		printk(KERN_DEBUG "asix_async_cmd_callback() failed with %d",
-			status);
+				status);
 
 	kfree(req);
 	usb_free_urb(urb);
 }
 
-static void
+	static void
 asix_write_cmd_async(struct usbnet *dev, u8 cmd, u16 value, u16 index,
-				    u16 size, void *data)
+		u16 size, void *data)
 {
 	struct usb_ctrlrequest *req;
 	int status;
 	struct urb *urb;
 
 	netdev_dbg(dev->net, "asix_write_cmd_async() cmd=0x%02x value=0x%04x index=0x%04x size=%d\n",
-		   cmd, value, index, size);
-	if ((urb = usb_alloc_urb(0, GFP_ATOMIC)) == NULL) {
+			cmd, value, index, size);
+
+	urb = usb_alloc_urb(0, GFP_ATOMIC);
+	if (!urb) {
 		netdev_err(dev->net, "Error allocating URB in write_cmd_async!\n");
 		return;
 	}
 
-	if ((req = kmalloc(sizeof(struct usb_ctrlrequest), GFP_ATOMIC)) == NULL) {
+	req = kmalloc(sizeof(struct usb_ctrlrequest), GFP_ATOMIC);
+	if (!req) {
 		netdev_err(dev->net, "Failed to allocate memory for control request\n");
 		usb_free_urb(urb);
 		return;
@@ -286,13 +154,14 @@ asix_write_cmd_async(struct usbnet *dev, u8 cmd, u16 value, u16 index,
 	req->wLength = cpu_to_le16(size);
 
 	usb_fill_control_urb(urb, dev->udev,
-			     usb_sndctrlpipe(dev->udev, 0),
-			     (void *)req, data, size,
-			     asix_async_cmd_callback, req);
+			usb_sndctrlpipe(dev->udev, 0),
+			(void *)req, data, size,
+			asix_async_cmd_callback, req);
 
-	if((status = usb_submit_urb(urb, GFP_ATOMIC)) < 0) {
+	status = usb_submit_urb(urb, GFP_ATOMIC);
+	if(status < 0) {
 		netdev_err(dev->net, "Error submitting the control message: status=%d\n",
-			   status);
+				status);
 		kfree(req);
 		usb_free_urb(urb);
 	}
@@ -314,18 +183,17 @@ static int asix_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 	skb_pull(skb, 4);
 
 	while (skb->len > 0) {
-		if ((short)(header & 0x0000ffff) !=
-		    ~((short)((header & 0xffff0000) >> 16))) {
+		if ((header & 0x07ff) != ((~header >> 16) & 0x07ff))
 			netdev_err(dev->net, "asix_rx_fixup() Bad Header Length\n");
-		}
+
 		/* get the packet length */
-		size = (u16) (header & 0x0000ffff);
+		size = (u16) (header & 0x000007ff);
 
 		if ((skb->len) - ((size + 1) & 0xfffe) == 0) {
 			u8 alignment = (unsigned long)skb->data & 0x3;
 			if (alignment != 0x2) {
 				/*
-				 * not 16bit aligned so use the room provided by
+				 * not 16bit aligned so use the room provided b
 				 * the 32 bit header to align the data
 				 *
 				 * note we want 16bit alignment as MAC header is
@@ -336,8 +204,8 @@ static int asix_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 				 */
 				u8 realignment = (alignment + 2) & 0x3;
 				memmove(skb->data - realignment,
-					skb->data,
-					size);
+						skb->data,
+						size);
 				skb->data -= realignment;
 				skb_set_tail_pointer(skb, size);
 			}
@@ -346,7 +214,7 @@ static int asix_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 
 		if (size > dev->net->mtu + ETH_HLEN) {
 			netdev_err(dev->net, "asix_rx_fixup() Bad RX Length %d\n",
-				   size);
+					size);
 			return 0;
 		}
 		ax_skb = skb_clone(skb, GFP_ATOMIC);
@@ -384,14 +252,14 @@ static int asix_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 
 	if (skb->len < 0) {
 		netdev_err(dev->net, "asix_rx_fixup() Bad SKB Length %d\n",
-			   skb->len);
+				skb->len);
 		return 0;
 	}
 	return 1;
 }
 
 static struct sk_buff *asix_tx_fixup(struct usbnet *dev, struct sk_buff *skb,
-					gfp_t flags)
+		gfp_t flags)
 {
 	int padlen;
 	int headroom = skb_headroom(skb);
@@ -402,7 +270,7 @@ static struct sk_buff *asix_tx_fixup(struct usbnet *dev, struct sk_buff *skb,
 	padlen = ((skb->len + 4) % 512) ? 0 : 4;
 
 	if ((!skb_cloned(skb)) &&
-	    ((headroom + tailroom) >= (4 + padlen))) {
+			((headroom + tailroom) >= (4 + padlen))) {
 		if ((headroom < 4) || (tailroom < padlen)) {
 			skb->data = memmove(skb->head + 4, skb->data, skb->len);
 			skb_set_tail_pointer(skb, skb->len);
@@ -479,7 +347,7 @@ static inline int asix_get_phy_addr(struct usbnet *dev)
 		goto out;
 	}
 	netdev_dbg(dev->net, "asix_get_phy_addr() returning 0x%04x\n",
-		   *((__le16 *)buf));
+			*((__le16 *)buf));
 	ret = buf[1];
 
 out:
@@ -490,7 +358,7 @@ static int asix_sw_reset(struct usbnet *dev, u8 flags)
 {
 	int ret;
 
-        ret = asix_write_cmd(dev, AX_CMD_SW_RESET, flags, 0, 0, NULL);
+	ret = asix_write_cmd(dev, AX_CMD_SW_RESET, flags, 0, 0, NULL);
 	if (ret < 0)
 		netdev_err(dev->net, "Failed to send software reset: %02x\n", ret);
 
@@ -519,7 +387,7 @@ static int asix_write_rx_ctl(struct usbnet *dev, u16 mode)
 	ret = asix_write_cmd(dev, AX_CMD_WRITE_RX_CTL, mode, 0, 0, NULL);
 	if (ret < 0)
 		netdev_err(dev->net, "Failed to write RX_CTL mode to 0x%04x: %02x\n",
-			   mode, ret);
+				mode, ret);
 
 	return ret;
 }
@@ -531,12 +399,12 @@ static u16 asix_read_medium_status(struct usbnet *dev)
 
 	if (ret < 0) {
 		netdev_err(dev->net, "Error reading Medium Status register: %02x\n",
-			   ret);
-		goto out;
+				ret);
+		return ret;	/* TODO: callers not checking for error ret */
 	}
-	ret = le16_to_cpu(v);
-out:
-	return ret;
+
+	return le16_to_cpu(v);
+
 }
 
 static int asix_write_medium_mode(struct usbnet *dev, u16 mode)
@@ -547,7 +415,7 @@ static int asix_write_medium_mode(struct usbnet *dev, u16 mode)
 	ret = asix_write_cmd(dev, AX_CMD_WRITE_MEDIUM_MODE, mode, 0, 0, NULL);
 	if (ret < 0)
 		netdev_err(dev->net, "Failed to write Medium Mode mode to 0x%04x: %02x\n",
-			   mode, ret);
+				mode, ret);
 
 	return ret;
 }
@@ -560,7 +428,7 @@ static int asix_write_gpio(struct usbnet *dev, u16 value, int sleep)
 	ret = asix_write_cmd(dev, AX_CMD_WRITE_GPIOS, value, 0, 0, NULL);
 	if (ret < 0)
 		netdev_err(dev->net, "Failed to write GPIO value 0x%04x: %02x\n",
-			   value, ret);
+				value, ret);
 
 	if (sleep)
 		msleep(sleep);
@@ -580,7 +448,7 @@ static void asix_set_multicast(struct net_device *net)
 	if (net->flags & IFF_PROMISC) {
 		rx_ctl |= AX_RX_CTL_PRO;
 	} else if (net->flags & IFF_ALLMULTI ||
-		   netdev_mc_count(net) > AX_MAX_MCAST) {
+			netdev_mc_count(net) > AX_MAX_MCAST) {
 		rx_ctl |= AX_RX_CTL_AMALL;
 	} else if (netdev_mc_empty(net)) {
 		/* just broadcast and directed */
@@ -598,11 +466,11 @@ static void asix_set_multicast(struct net_device *net)
 		netdev_for_each_mc_addr(ha, net) {
 			crc_bits = ether_crc(ETH_ALEN, ha->addr) >> 26;
 			data->multi_filter[crc_bits >> 3] |=
-			    1 << (crc_bits & 7);
+				1 << (crc_bits & 7);
 		}
 
 		asix_write_cmd_async(dev, AX_CMD_WRITE_MULTI_FILTER, 0, 0,
-				   AX_MCAST_FILTER_SIZE, data->multi_filter);
+				AX_MCAST_FILTER_SIZE, data->multi_filter);
 
 		rx_ctl |= AX_RX_CTL_AM;
 	}
@@ -618,27 +486,31 @@ static int asix_mdio_read(struct net_device *netdev, int phy_id, int loc)
 	mutex_lock(&dev->phy_mutex);
 	asix_set_sw_mii(dev);
 	asix_read_cmd(dev, AX_CMD_READ_MII_REG, phy_id,
-				(__u16)loc, 2, &res);
+			(__u16)loc, 2, &res);
 	asix_set_hw_mii(dev);
 	mutex_unlock(&dev->phy_mutex);
 
 	netdev_dbg(dev->net, "asix_mdio_read() phy_id=0x%02x, loc=0x%02x, returns=0x%04x\n",
-		   phy_id, loc, le16_to_cpu(res));
+			phy_id, loc, le16_to_cpu(res));
 
 	return le16_to_cpu(res);
 }
 
-static void
-asix_mdio_write(struct net_device *netdev, int phy_id, int loc, int val)
+static void asix_mdio_write(struct net_device *netdev, int phy_id, int loc, int val)
 {
 	struct usbnet *dev = netdev_priv(netdev);
 	__le16 res = cpu_to_le16(val);
 
 	netdev_dbg(dev->net, "asix_mdio_write() phy_id=0x%02x, loc=0x%02x, val=0x%04x\n",
-		   phy_id, loc, val);
+			phy_id, loc, val);
 	mutex_lock(&dev->phy_mutex);
 	asix_set_sw_mii(dev);
 	asix_write_cmd(dev, AX_CMD_WRITE_MII_REG, phy_id, (__u16)loc, 2, &res);
+	if (loc == MII_ADVERTISE) {
+		res = cpu_to_le16(BMCR_ANENABLE | BMCR_ANRESTART);
+		asix_write_cmd(dev, AX_CMD_WRITE_MII_REG, phy_id,
+				(__u16)MII_BMCR, 2, &res);
+	}
 	asix_set_hw_mii(dev);
 	mutex_unlock(&dev->phy_mutex);
 }
@@ -664,7 +536,7 @@ static u32 asix_get_phyid(struct usbnet *dev)
 	return phy_id;
 }
 
-static void
+	static void
 asix_get_wol(struct net_device *net, struct ethtool_wolinfo *wolinfo)
 {
 	struct usbnet *dev = netdev_priv(net);
@@ -677,15 +549,13 @@ asix_get_wol(struct net_device *net, struct ethtool_wolinfo *wolinfo)
 	}
 	wolinfo->supported = WAKE_PHY | WAKE_MAGIC;
 	wolinfo->wolopts = 0;
-	if (opt & AX_MONITOR_MODE) {
-		if (opt & AX_MONITOR_LINK)
-			wolinfo->wolopts |= WAKE_PHY;
-		if (opt & AX_MONITOR_MAGIC)
-			wolinfo->wolopts |= WAKE_MAGIC;
-	}
+	if (opt & AX_MONITOR_LINK)
+		wolinfo->wolopts |= WAKE_PHY;
+	if (opt & AX_MONITOR_MAGIC)
+		wolinfo->wolopts |= WAKE_MAGIC;
 }
 
-static int
+	static int
 asix_set_wol(struct net_device *net, struct ethtool_wolinfo *wolinfo)
 {
 	struct usbnet *dev = netdev_priv(net);
@@ -695,11 +565,9 @@ asix_set_wol(struct net_device *net, struct ethtool_wolinfo *wolinfo)
 		opt |= AX_MONITOR_LINK;
 	if (wolinfo->wolopts & WAKE_MAGIC)
 		opt |= AX_MONITOR_MAGIC;
-	if (opt != 0)
-		opt |= AX_MONITOR_MODE;
 
 	if (asix_write_cmd(dev, AX_CMD_WRITE_MONITOR_MODE,
-			      opt, 0, 0, NULL) < 0)
+				opt, 0, 0, NULL) < 0)
 		return -EINVAL;
 
 	return 0;
@@ -714,7 +582,7 @@ static int asix_get_eeprom_len(struct net_device *net)
 }
 
 static int asix_get_eeprom(struct net_device *net,
-			      struct ethtool_eeprom *eeprom, u8 *data)
+		struct ethtool_eeprom *eeprom, u8 *data)
 {
 	struct usbnet *dev = netdev_priv(net);
 	__le16 *ebuf = (__le16 *)data;
@@ -731,21 +599,21 @@ static int asix_get_eeprom(struct net_device *net,
 	/* ax8817x returns 2 bytes from eeprom on read */
 	for (i=0; i < eeprom->len / 2; i++) {
 		if (asix_read_cmd(dev, AX_CMD_READ_EEPROM,
-			eeprom->offset + i, 0, 2, &ebuf[i]) < 0)
+					eeprom->offset + i, 0, 2, &ebuf[i]) < 0)
 			return -EINVAL;
 	}
 	return 0;
 }
 
 static void asix_get_drvinfo (struct net_device *net,
-				 struct ethtool_drvinfo *info)
+		struct ethtool_drvinfo *info)
 {
 	struct usbnet *dev = netdev_priv(net);
 	struct asix_data *data = (struct asix_data *)&dev->data;
 
 	/* Inherit standard device info */
 	usbnet_get_drvinfo(net, info);
-	strncpy (info->driver, driver_name, sizeof info->driver);
+	strncpy (info->driver, DRIVER_NAME, sizeof info->driver);
 	strncpy (info->version, DRIVER_VERSION, sizeof info->version);
 	info->eedump_len = data->eeprom_len;
 }
@@ -783,7 +651,7 @@ static int asix_set_mac_address(struct net_device *net, void *p)
 	 * is tricky to free later */
 	memcpy(data->mac_addr, addr->sa_data, ETH_ALEN);
 	asix_write_cmd_async(dev, AX_CMD_WRITE_NODE_ID, 0, 0, ETH_ALEN,
-							data->mac_addr);
+			data->mac_addr);
 
 	return 0;
 }
@@ -814,7 +682,7 @@ static void ax88172_set_multicast(struct net_device *net)
 	if (net->flags & IFF_PROMISC) {
 		rx_ctl |= 0x01;
 	} else if (net->flags & IFF_ALLMULTI ||
-		   netdev_mc_count(net) > AX_MAX_MCAST) {
+			netdev_mc_count(net) > AX_MAX_MCAST) {
 		rx_ctl |= 0x02;
 	} else if (netdev_mc_empty(net)) {
 		/* just broadcast and directed */
@@ -832,11 +700,11 @@ static void ax88172_set_multicast(struct net_device *net)
 		netdev_for_each_mc_addr(ha, net) {
 			crc_bits = ether_crc(ETH_ALEN, ha->addr) >> 26;
 			data->multi_filter[crc_bits >> 3] |=
-			    1 << (crc_bits & 7);
+				1 << (crc_bits & 7);
 		}
 
 		asix_write_cmd_async(dev, AX_CMD_WRITE_MULTI_FILTER, 0, 0,
-				   AX_MCAST_FILTER_SIZE, data->multi_filter);
+				AX_MCAST_FILTER_SIZE, data->multi_filter);
 
 		rx_ctl |= 0x10;
 	}
@@ -857,7 +725,7 @@ static int ax88172_link_reset(struct usbnet *dev)
 		mode |= ~AX88172_MEDIUM_FD;
 
 	netdev_dbg(dev->net, "ax88172_link_reset() speed: %u duplex: %d setting mode to 0x%04x\n",
-		   ethtool_cmd_speed(&ecmd), ecmd.duplex, mode);
+			ethtool_cmd_speed(&ecmd), ecmd.duplex, mode);
 
 	asix_write_medium_mode(dev, mode);
 
@@ -873,7 +741,7 @@ static const struct net_device_ops ax88172_netdev_ops = {
 	.ndo_set_mac_address 	= eth_mac_addr,
 	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_do_ioctl		= asix_ioctl,
-	.ndo_set_multicast_list = ax88172_set_multicast,
+	.ndo_set_rx_mode	= ax88172_set_multicast,
 };
 
 static int ax88172_bind(struct usbnet *dev, struct usb_interface *intf)
@@ -890,19 +758,20 @@ static int ax88172_bind(struct usbnet *dev, struct usb_interface *intf)
 
 	/* Toggle the GPIOs in a manufacturer/model specific way */
 	for (i = 2; i >= 0; i--) {
-		if ((ret = asix_write_cmd(dev, AX_CMD_WRITE_GPIOS,
-					(gpio_bits >> (i * 8)) & 0xff, 0, 0,
-					NULL)) < 0)
+		ret = asix_write_cmd(dev, AX_CMD_WRITE_GPIOS,
+				(gpio_bits >> (i * 8)) & 0xff, 0, 0, NULL);
+		if (ret < 0)
 			goto out;
 		msleep(5);
 	}
 
-	if ((ret = asix_write_rx_ctl(dev, 0x80)) < 0)
+	ret = asix_write_rx_ctl(dev, 0x80);
+	if (ret < 0)
 		goto out;
 
 	/* Get the MAC address */
-	if ((ret = asix_read_cmd(dev, AX88172_CMD_READ_NODE_ID,
-				0, 0, ETH_ALEN, buf)) < 0) {
+	ret = asix_read_cmd(dev, AX88172_CMD_READ_NODE_ID, 0, 0, ETH_ALEN, buf);
+	if (ret < 0) {
 		dbg("read AX_CMD_READ_NODE_ID failed: %d", ret);
 		goto out;
 	}
@@ -921,7 +790,7 @@ static int ax88172_bind(struct usbnet *dev, struct usb_interface *intf)
 
 	asix_mdio_write(dev->net, dev->mii.phy_id, MII_BMCR, BMCR_RESET);
 	asix_mdio_write(dev->net, dev->mii.phy_id, MII_ADVERTISE,
-		ADVERTISE_ALL | ADVERTISE_CSMA | ADVERTISE_PAUSE_CAP);
+			ADVERTISE_ALL | ADVERTISE_CSMA | ADVERTISE_PAUSE_CAP);
 	mii_nway_restart(&dev->mii);
 
 	return 0;
@@ -960,78 +829,139 @@ static int ax88772_link_reset(struct usbnet *dev)
 		mode &= ~AX_MEDIUM_FD;
 
 	netdev_dbg(dev->net, "ax88772_link_reset() speed: %u duplex: %d setting mode to 0x%04x\n",
-		   ethtool_cmd_speed(&ecmd), ecmd.duplex, mode);
+			ethtool_cmd_speed(&ecmd), ecmd.duplex, mode);
 
 	asix_write_medium_mode(dev, mode);
 
 	return 0;
 }
 
-static const struct net_device_ops ax88772_netdev_ops = {
-	.ndo_open		= usbnet_open,
-	.ndo_stop		= usbnet_stop,
-	.ndo_start_xmit		= usbnet_start_xmit,
-	.ndo_tx_timeout		= usbnet_tx_timeout,
-	.ndo_change_mtu		= usbnet_change_mtu,
-	.ndo_set_mac_address 	= asix_set_mac_address,
-	.ndo_validate_addr	= eth_validate_addr,
-	.ndo_do_ioctl		= asix_ioctl,
-	.ndo_set_multicast_list = asix_set_multicast,
-};
-
-static int ax88772_bind(struct usbnet *dev, struct usb_interface *intf)
+static int ax88772_reset(struct usbnet *dev)
 {
 	int ret, embd_phy;
 	u16 rx_ctl;
-	struct asix_data *data = (struct asix_data *)&dev->data;
-	u8 buf[ETH_ALEN];
-	u32 phyid;
 
-	data->eeprom_len = AX88772_EEPROM_LEN;
-
-	usbnet_get_endpoints(dev,intf);
-
-	if ((ret = asix_write_gpio(dev,
-			AX_GPIO_RSE | AX_GPIO_GPO_2 | AX_GPIO_GPO2EN, 5)) < 0)
+	ret = asix_write_gpio(dev,
+			AX_GPIO_RSE | AX_GPIO_GPO_2 | AX_GPIO_GPO2EN, 5);
+	if (ret < 0)
 		goto out;
 
-	/* 0x10 is the phy id of the embedded 10/100 ethernet phy */
 	embd_phy = ((asix_get_phy_addr(dev) & 0x1f) == 0x10 ? 1 : 0);
-	if ((ret = asix_write_cmd(dev, AX_CMD_SW_PHY_SELECT,
-				embd_phy, 0, 0, NULL)) < 0) {
+
+	ret = asix_write_cmd(dev, AX_CMD_SW_PHY_SELECT, embd_phy, 0, 0, NULL);
+	if (ret < 0) {
 		dbg("Select PHY #1 failed: %d", ret);
 		goto out;
 	}
 
-	if ((ret = asix_sw_reset(dev, AX_SWRESET_IPPD | AX_SWRESET_PRL)) < 0)
+	ret = asix_sw_reset(dev, AX_SWRESET_IPPD | AX_SWRESET_PRL);
+	if (ret < 0)
 		goto out;
 
 	msleep(150);
-	if ((ret = asix_sw_reset(dev, AX_SWRESET_CLEAR)) < 0)
+
+	ret = asix_sw_reset(dev, AX_SWRESET_CLEAR);
+	if (ret < 0)
 		goto out;
 
 	msleep(150);
+
 	if (embd_phy) {
-		if ((ret = asix_sw_reset(dev, AX_SWRESET_IPRL)) < 0)
+		ret = asix_sw_reset(dev, AX_SWRESET_IPRL);
+		if (ret < 0)
 			goto out;
-	}
-	else {
-		if ((ret = asix_sw_reset(dev, AX_SWRESET_PRTE)) < 0)
+	} else {
+		ret = asix_sw_reset(dev, AX_SWRESET_PRTE);
+		if (ret < 0)
 			goto out;
 	}
 
 	msleep(150);
 	rx_ctl = asix_read_rx_ctl(dev);
 	dbg("RX_CTL is 0x%04x after software reset", rx_ctl);
-	if ((ret = asix_write_rx_ctl(dev, 0x0000)) < 0)
+	ret = asix_write_rx_ctl(dev, 0x0000);
+	if (ret < 0)
 		goto out;
 
 	rx_ctl = asix_read_rx_ctl(dev);
 	dbg("RX_CTL is 0x%04x setting to 0x0000", rx_ctl);
 
+	ret = asix_sw_reset(dev, AX_SWRESET_PRL);
+	if (ret < 0)
+		goto out;
+
+	msleep(150);
+
+	ret = asix_sw_reset(dev, AX_SWRESET_IPRL | AX_SWRESET_PRL);
+	if (ret < 0)
+		goto out;
+
+	msleep(150);
+
+	asix_mdio_write(dev->net, dev->mii.phy_id, MII_BMCR, BMCR_RESET);
+	asix_mdio_write(dev->net, dev->mii.phy_id, MII_ADVERTISE,
+			ADVERTISE_ALL | ADVERTISE_CSMA);
+	mii_nway_restart(&dev->mii);
+
+	ret = asix_write_medium_mode(dev, AX88772_MEDIUM_DEFAULT);
+	if (ret < 0)
+		goto out;
+
+	ret = asix_write_cmd(dev, AX_CMD_WRITE_IPG0,
+			AX88772_IPG0_DEFAULT | AX88772_IPG1_DEFAULT,
+			AX88772_IPG2_DEFAULT, 0, NULL);
+	if (ret < 0) {
+		dbg("Write IPG,IPG1,IPG2 failed: %d", ret);
+		goto out;
+	}
+
+	/* Set RX_CTL to default values with 2k buffer, and enable cactus */
+	ret = asix_write_rx_ctl(dev, AX_DEFAULT_RX_CTL);
+	if (ret < 0)
+		goto out;
+
+	rx_ctl = asix_read_rx_ctl(dev);
+	dbg("RX_CTL is 0x%04x after all initializations", rx_ctl);
+
+	rx_ctl = asix_read_medium_status(dev);
+	dbg("Medium Status is 0x%04x after all initializations", rx_ctl);
+
+	return 0;
+
+out:
+	return ret;
+
+}
+
+static const struct net_device_ops ax88772_netdev_ops = {
+	.ndo_open			= usbnet_open,
+	.ndo_stop			= usbnet_stop,
+	.ndo_start_xmit		= usbnet_start_xmit,
+	.ndo_tx_timeout		= usbnet_tx_timeout,
+	.ndo_change_mtu		= usbnet_change_mtu,
+	.ndo_set_mac_address 	= asix_set_mac_address,
+	.ndo_validate_addr	= eth_validate_addr,
+	.ndo_do_ioctl		= asix_ioctl,
+	.ndo_set_rx_mode	= asix_set_multicast,
+};
+
+static int ax88772_bind(struct usbnet *dev, struct usb_interface *intf)
+{
+	int ret;
+	struct asix_data *data = (struct asix_data *)&dev->data;
+	u8 buf[ETH_ALEN];
+	u32 phyid;
+
+	data->eeprom_len = AX88772_EEPROM_LEN;
+	usbnet_get_endpoints(dev,intf);
+
+	if ((ret = asix_write_gpio(dev,
+			AX_GPIO_RSE | AX_GPIO_GPO_2 | AX_GPIO_GPO2EN, 5)) < 0)
+		goto out;
+
 	/* Get the MAC address */
-	if ((ret = asix_read_cmd(dev, AX_CMD_READ_NODE_ID,
-				0, 0, ETH_ALEN, buf)) < 0) {
+	ret = asix_read_cmd(dev, AX_CMD_READ_NODE_ID, 0, 0, ETH_ALEN, buf);
+	if (ret < 0) {
 		dbg("Failed to read MAC address: %d", ret);
 		goto out;
 	}
@@ -1048,43 +978,12 @@ static int ax88772_bind(struct usbnet *dev, struct usb_interface *intf)
 	phyid = asix_get_phyid(dev);
 	dbg("PHYID=0x%08x", phyid);
 
-	if ((ret = asix_sw_reset(dev, AX_SWRESET_PRL)) < 0)
-		goto out;
-
-	msleep(150);
-
-	if ((ret = asix_sw_reset(dev, AX_SWRESET_IPRL | AX_SWRESET_PRL)) < 0)
-		goto out;
-
-	msleep(150);
-
 	dev->net->netdev_ops = &ax88772_netdev_ops;
 	dev->net->ethtool_ops = &ax88772_ethtool_ops;
 
-	asix_mdio_write(dev->net, dev->mii.phy_id, MII_BMCR, BMCR_RESET);
-	asix_mdio_write(dev->net, dev->mii.phy_id, MII_ADVERTISE,
-			ADVERTISE_ALL | ADVERTISE_CSMA);
-	mii_nway_restart(&dev->mii);
-
-	if ((ret = asix_write_medium_mode(dev, AX88772_MEDIUM_DEFAULT)) < 0)
+	ret = ax88772_reset(dev);
+	if (ret < 0)
 		goto out;
-
-	if ((ret = asix_write_cmd(dev, AX_CMD_WRITE_IPG0,
-				AX88772_IPG0_DEFAULT | AX88772_IPG1_DEFAULT,
-				AX88772_IPG2_DEFAULT, 0, NULL)) < 0) {
-		dbg("Write IPG,IPG1,IPG2 failed: %d", ret);
-		goto out;
-	}
-
-	/* Set RX_CTL to default values with 2k buffer, and enable cactus */
-	if ((ret = asix_write_rx_ctl(dev, AX_DEFAULT_RX_CTL)) < 0)
-		goto out;
-
-	rx_ctl = asix_read_rx_ctl(dev);
-	dbg("RX_CTL is 0x%04x after all initializations", rx_ctl);
-
-	rx_ctl = asix_read_medium_status(dev);
-	dbg("Medium Status is 0x%04x after all initializations", rx_ctl);
 
 	/* Asix framing packs multiple eth frames into a 2K usb bulk transfer */
 	if (dev->driver_info->flags & FLAG_FRAMING_AX) {
@@ -1092,24 +991,407 @@ static int ax88772_bind(struct usbnet *dev, struct usb_interface *intf)
 		   jumbo eth frames */
 		dev->rx_urb_size = 2048;
 	}
-	return 0;
 
+	return 0;
+out:
+	return ret;
+}
+
+static int ax88772b_set_csums(struct usbnet *dev)
+{
+	struct asix_data *ax772b_data = (struct asix_data *)&dev->data;
+	u16 checksum;
+
+	if (ax772b_data->checksum & AX_RX_CHECKSUM)
+		checksum = AX_RXCOE_DEF_CSUM;
+	else
+		checksum = 0;
+
+	asix_write_cmd (dev, AX_CMD_WRITE_RXCOE_CTL,
+			checksum, 0, 0, NULL);
+
+	if (ax772b_data->checksum & AX_TX_CHECKSUM)
+		checksum = AX_TXCOE_DEF_CSUM;
+	else
+		checksum = 0;
+
+	asix_write_cmd (dev, AX_CMD_WRITE_TXCOE_CTL,
+			checksum, 0, 0, NULL);
+
+	return 0;
+}
+
+static u32 ax88772b_get_tx_csum(struct net_device *netdev)
+{
+	struct usbnet *dev = netdev_priv(netdev);
+	struct asix_data *ax772b_data = (struct asix_data *)&dev->data;
+
+	return (ax772b_data->checksum & AX_TX_CHECKSUM);
+}
+
+static u32 ax88772b_get_rx_csum(struct net_device *netdev)
+{
+	struct usbnet *dev = netdev_priv(netdev);
+	struct asix_data *ax772b_data = (struct asix_data *)&dev->data;
+
+	return (ax772b_data->checksum & AX_RX_CHECKSUM);
+}
+
+static int ax88772b_set_rx_csum(struct net_device *netdev, u32 val)
+{
+	struct usbnet *dev = netdev_priv(netdev);
+	struct asix_data *ax772b_data = (struct asix_data *)&dev->data;
+
+	if (val)
+		ax772b_data->checksum |= AX_RX_CHECKSUM;
+	else
+		ax772b_data->checksum &= ~AX_RX_CHECKSUM;
+
+	return ax88772b_set_csums(dev);
+}
+
+static int ax88772b_set_tx_csum(struct net_device *netdev, u32 val)
+{
+	struct usbnet *dev = netdev_priv(netdev);
+	struct asix_data *ax772b_data = (struct asix_data *)&dev->data;
+
+	if (val)
+		ax772b_data->checksum |= AX_TX_CHECKSUM;
+	else
+		ax772b_data->checksum &= ~AX_TX_CHECKSUM;
+
+	ethtool_op_set_tx_csum(netdev, val);
+
+	return ax88772b_set_csums(dev);
+}
+
+
+static int ax88772b_reset(struct usbnet *dev)
+{
+	int ret;
+	u16 tmp16;
+	struct asix_data *data = (struct asix_data*)&dev->data;
+	u8 rx_size;
+
+	/* select the embedded 10/100 Ethernet PHY */
+	if ((ret = asix_write_cmd(dev, AX_CMD_SW_PHY_SELECT,
+					AX_PHYSEL_SSEN | AX_PHYSEL_PSEL | AX_PHYSEL_SSMII,
+					0, 0, NULL)) < 0) {
+		netdev_err(dev->net, "Select PHY #1 failed: %d", ret);
+	}
+
+	/* set the embedded Ethernet PHY in power-down state */
+	if ((ret = asix_sw_reset(dev, AX_SWRESET_IPPD | AX_SWRESET_PRL)) < 0) {
+		netdev_err(dev->net, "Failed to power down PHY: %d", ret);
+		goto out;
+	}
+	msleep(10);
+
+	/* set the embedded Ethernet PHY in reset state */
+	if ((ret = asix_sw_reset(dev, AX_SWRESET_CLEAR)) < 0) {
+		netdev_err(dev->net, "Failed to power up PHY: %d", ret);
+		goto out;
+	}
+
+	/* set the embedded Ethernet PHY in power-up state */
+	if ((ret = asix_sw_reset(dev, AX_SWRESET_IPRL)) < 0) {
+		netdev_err(dev->net, "Failed to reset PHY: %d", ret);
+		goto out;
+	}
+
+	/* make sure the driver can enable sw mii operation */
+	if ((ret = asix_write_cmd(dev, AX_CMD_SET_SW_MII,
+					0, 0, 0, NULL)) < 0) {
+		netdev_err(dev->net, "Enabling software MII failed: %d", ret);
+		goto out;
+	}
+
+	tmp16 = asix_mdio_read(dev->net, dev->mii.phy_id, 0x12);
+	asix_mdio_write(dev->net, dev->mii.phy_id, 0x12,
+			((tmp16 & 0xFF9F) | 0x0040));
+	asix_mdio_write(dev->net, dev->mii.phy_id, MII_ADVERTISE,
+			ADVERTISE_ALL | ADVERTISE_CSMA | ADVERTISE_PAUSE_CAP);
+
+	mii_nway_restart(&dev->mii);
+
+	if ((ret = asix_write_medium_mode(dev, AX88772_MEDIUM_DEFAULT)) < 0) 
+		netdev_err(dev->net, "Failed to write medium mode: %d", ret);
+
+	if ((ret = asix_write_cmd(dev, AX_CMD_WRITE_IPG0,
+					AX88772A_IPG0_DEFAULT | AX88772A_IPG1_DEFAULT << 8,
+					AX88772A_IPG2_DEFAULT, 0, NULL)) < 0) {
+		netdev_err(dev->net, "Failed to write interframe gap: %d", ret);
+		goto out;
+	}
+
+	dev->net->features |= NETIF_F_IP_CSUM;
+	dev->net->features |= NETIF_F_IPV6_CSUM;
+
+	data->checksum = AX_RX_CHECKSUM | AX_TX_CHECKSUM;
+	if ((ret = ax88772b_set_csums(dev)) < 0) {
+		netdev_err(dev->net, "Write RX_COE/TX_COE failed: %d", ret);
+		goto out;
+	}
+
+	rx_size = bsize & 0x07;
+	if (dev->udev->speed == USB_SPEED_HIGH) {
+
+		if ((ret = asix_write_cmd (dev, 0x2A,
+						AX88772B_BULKIN_SIZE[rx_size].byte_cnt,
+						AX88772B_BULKIN_SIZE[rx_size].threshold,
+						0, NULL)) < 0) {
+			netdev_err(dev->net, "Reset RX_CTL failed: %d", ret);
+		}
+
+		dev->rx_urb_size = AX88772B_BULKIN_SIZE[rx_size].size;
+	} else {
+		if ((ret = asix_write_cmd (dev, 0x2A,
+						0x8000, 0x8001, 0, NULL)) < 0) {
+			netdev_err(dev->net, "Reset RX_CTL failed: %d", ret);
+		}
+		dev->rx_urb_size = 2048;
+	}
+
+	/* Configure RX header type */
+	if ((ret = asix_write_cmd (dev, AX_CMD_WRITE_RX_CTL,
+					(AX_DEFAULT_RX_CTL  | AX_RX_HEADER_DEFAULT),
+					0, 0, NULL)) < 0) {
+		netdev_err(dev->net, "Reset RX_CTL failed: %d", ret);
+	}
+
+out:
+	return ret;
+}
+
+static void ax88772b_set_multicast(struct net_device *net)
+{
+	struct usbnet *dev = netdev_priv(net);
+	struct asix_data *data = (struct asix_data*)&dev->data;
+	u16 rx_ctl = (AX_DEFAULT_RX_CTL | AX_RX_HEADER_DEFAULT);
+
+	if (net->flags & IFF_PROMISC) {
+		rx_ctl |= AX_RX_CTL_PRO;
+	} else if (net->flags & IFF_ALLMULTI ||
+			netdev_mc_count(net) > AX_MAX_MCAST) {
+		rx_ctl |= AX_RX_CTL_AMALL;
+	} else if (netdev_mc_empty(net)) {
+		/* just broadcast and directed */
+	} else {
+		/* We use the 20 byte dev->data
+		 * for our 8 byte filter buffer
+		 * to avoid allocating memory that
+		 * is tricky to free later */
+		struct netdev_hw_addr *ha;
+		u32 crc_bits;
+
+		memset(data->multi_filter, 0, AX_MCAST_FILTER_SIZE);
+		netdev_for_each_mc_addr (ha, net) {
+			crc_bits = ether_crc(ETH_ALEN, ha->addr) >> 26;
+			data->multi_filter[crc_bits >> 3] |=
+				1 << (crc_bits & 7);
+		}
+		asix_write_cmd_async(dev, AX_CMD_WRITE_MULTI_FILTER, 0, 0,
+				AX_MCAST_FILTER_SIZE, data->multi_filter);
+		rx_ctl |= AX_RX_CTL_AM;
+	}
+
+	asix_write_cmd_async(dev, AX_CMD_WRITE_RX_CTL, rx_ctl, 0, 0, NULL);
+}
+
+static void ax88772b_mdio_write(struct net_device *netdev, int phy_id, int loc, int val)
+{
+	struct usbnet *dev = netdev_priv(netdev);
+	__le16 res = cpu_to_le16(val);
+
+	netdev_dbg(dev->net, "asix_mdio_write() phy_id=0x%02x, loc=0x%02x, val=0x%04x\n",
+			phy_id, loc, val);
+	mutex_lock(&dev->phy_mutex);
+	asix_write_cmd(dev, AX_CMD_SET_SW_MII, 0, 0, 0, NULL);
+	asix_write_cmd(dev, AX_CMD_WRITE_MII_REG, phy_id,
+			(__u16)loc, 2, &res);
+	if (loc == MII_ADVERTISE) {
+		res = cpu_to_le16(BMCR_ANENABLE | BMCR_ANRESTART);
+		asix_write_cmd(dev, AX_CMD_WRITE_MII_REG, phy_id,
+				(__u16)MII_BMCR, 2, &res);
+	}
+	asix_write_cmd(dev, AX_CMD_SET_HW_MII, 0, 0, 0, NULL);
+	mutex_unlock(&dev->phy_mutex);
+}
+
+static void ax88772b_rx_checksum (struct sk_buff *skb, struct ax88772b_rx_header *rx_hdr)
+{
+	skb->ip_summed = CHECKSUM_NONE;
+
+	/* checksum error bit is set */
+	if (rx_hdr->l3_csum_err || rx_hdr->l4_csum_err) {
+		return;
+	}
+
+	/* It must be a TCP or UDP packet with a valid checksum */
+	if ((rx_hdr->l4_type == AX_RXHDR_L4_TYPE_TCP) ||
+			(rx_hdr->l4_type == AX_RXHDR_L4_TYPE_UDP)) {
+		skb->ip_summed = CHECKSUM_UNNECESSARY;
+	}
+}
+
+static int ax88772b_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
+{
+	struct ax88772b_rx_header rx_hdr;
+	struct sk_buff *ax_skb;
+	struct asix_data *ax772b_data = (struct asix_data *)&dev->data;
+
+	while (skb->len > 0) {
+
+		memcpy (&rx_hdr, skb->data, sizeof (struct ax88772b_rx_header));
+
+		if ((short)rx_hdr.len != (~((short)rx_hdr.len_bar) & 0x7FF)) {
+			return 0;
+		}
+
+		if (rx_hdr.len > (ETH_FRAME_LEN + 4)) {
+			netdev_err(dev->net, "invalid rx length %d", rx_hdr.len);
+			return 0;
+		}
+
+		if (skb->len - ((rx_hdr.len + 
+						sizeof (struct ax88772b_rx_header) + 3) & 
+					0xfffc) == 0) {
+			skb_pull(skb, sizeof (struct ax88772b_rx_header));
+			skb->len = rx_hdr.len;
+
+			skb_set_tail_pointer(skb, rx_hdr.len);
+			skb->truesize = rx_hdr.len + sizeof(struct sk_buff);
+
+			if (ax772b_data->checksum & AX_RX_CHECKSUM)
+				ax88772b_rx_checksum (skb, &rx_hdr);
+
+			return 2;
+		}
+
+		ax_skb = skb_clone(skb, GFP_ATOMIC);
+		if (ax_skb) {
+			ax_skb->len = rx_hdr.len;
+			ax_skb->data = skb->data + 
+				sizeof (struct ax88772b_rx_header);
+
+			skb_set_tail_pointer(ax_skb, rx_hdr.len);
+			ax_skb->truesize = rx_hdr.len + sizeof(struct sk_buff);
+
+			if (ax772b_data->checksum & AX_RX_CHECKSUM) {
+				ax88772b_rx_checksum (ax_skb, &rx_hdr);
+			}
+
+			usbnet_skb_return(dev, ax_skb);
+
+		} else {
+			return 0;
+		}
+
+		skb_pull(skb, ((rx_hdr.len + 
+						sizeof (struct ax88772b_rx_header) + 3)
+					& 0xfffc));
+	}
+
+	if (skb->len < 0) {
+		netdev_err(dev->net, "invalid rx length %d", skb->len);
+		return 0;
+	}
+	return 1;
+}
+
+static struct ethtool_ops ax88772b_ethtool_ops = {
+	.get_drvinfo		= asix_get_drvinfo,
+	.get_link			= asix_get_link,
+	.get_msglevel		= usbnet_get_msglevel,
+	.set_msglevel		= usbnet_set_msglevel,
+	.get_wol			= asix_get_wol,
+	.set_wol			= asix_set_wol,
+	.get_eeprom_len		= asix_get_eeprom_len,
+	.get_eeprom			= asix_get_eeprom,
+	.get_settings		= usbnet_get_settings,
+	.set_settings		= usbnet_set_settings,
+	.set_tx_csum		= ax88772b_set_tx_csum,
+	.get_tx_csum		= ax88772b_get_tx_csum,
+	.get_rx_csum		= ax88772b_get_rx_csum,
+	.set_rx_csum		= ax88772b_set_rx_csum,
+};
+
+static const struct net_device_ops ax88772b_netdev_ops = {
+	.ndo_open			= usbnet_open,
+	.ndo_stop			= usbnet_stop,
+	.ndo_start_xmit		= usbnet_start_xmit,
+	.ndo_tx_timeout		= usbnet_tx_timeout,
+	.ndo_change_mtu		= usbnet_change_mtu,
+	.ndo_do_ioctl		= asix_ioctl,
+	.ndo_set_mac_address 	= asix_set_mac_address,
+	.ndo_validate_addr	= eth_validate_addr,
+	.ndo_set_multicast_list = ax88772b_set_multicast,
+};
+
+static int ax88772b_bind(struct usbnet *dev, struct usb_interface *intf)
+{
+	int ret;
+	struct asix_data *data = (struct asix_data *)&dev->data;
+	u8 buf[ETH_ALEN];
+	u8 i;
+
+	data->eeprom_len = AX88772_EEPROM_LEN;
+	usbnet_get_endpoints(dev,intf);
+
+	/* reload eeprom data */
+	if ((ret = asix_write_cmd(dev, AX_CMD_WRITE_GPIOS,
+					AX_GPIO_RSE, 0, 0, NULL)) < 0) {
+		netdev_err(dev->net, "Failed to enable GPIO finction: %d", ret);
+	}
+	msleep(100);
+
+	/* Get the MAC address from EEPROM */
+	for (i = 0; i < (ETH_ALEN >> 1); i++) {
+		if ((ret = asix_read_cmd(dev, AX_CMD_READ_EEPROM,
+						0x04 + i, 0, 2, (buf + i * 2))) < 0) {
+			netdev_err(dev->net, "read SROM address 04h failed: %d", ret);
+			goto out;
+		}
+	}
+	memcpy(dev->net->dev_addr, buf, ETH_ALEN);
+
+	/* Set the MAC address */
+	if ((ret = asix_write_cmd(dev, AX88772_CMD_WRITE_NODE_ID,
+					0, 0, ETH_ALEN, buf)) < 0) {
+		netdev_err(dev->net, "set MAC address failed: %d", ret);
+		goto out;
+	}
+
+	/* Initialize MII structure */
+	dev->mii.dev = dev->net;
+	dev->mii.mdio_read = asix_mdio_read;
+	dev->mii.mdio_write = ax88772b_mdio_write;
+	dev->mii.phy_id_mask = 0xff;
+	dev->mii.reg_num_mask = 0xff;
+	dev->mii.phy_id = asix_get_phy_addr(dev);
+
+	dbg("PHYID=0x%08x", asix_get_phyid(dev));
+
+	dev->net->netdev_ops = &ax88772b_netdev_ops;
+	dev->net->ethtool_ops = &ax88772b_ethtool_ops;
+
+	ret = ax88772b_reset(dev);
 out:
 	return ret;
 }
 
 static struct ethtool_ops ax88178_ethtool_ops = {
 	.get_drvinfo		= asix_get_drvinfo,
-	.get_link		= asix_get_link,
+	.get_link			= asix_get_link,
 	.get_msglevel		= usbnet_get_msglevel,
 	.set_msglevel		= usbnet_set_msglevel,
-	.get_wol		= asix_get_wol,
-	.set_wol		= asix_set_wol,
+	.get_wol			= asix_get_wol,
+	.set_wol			= asix_set_wol,
 	.get_eeprom_len		= asix_get_eeprom_len,
-	.get_eeprom		= asix_get_eeprom,
+	.get_eeprom			= asix_get_eeprom,
 	.get_settings		= usbnet_get_settings,
 	.set_settings		= usbnet_set_settings,
-	.nway_reset		= usbnet_nway_reset,
+	.nway_reset			= usbnet_nway_reset,
 };
 
 static int marvell_phy_init(struct usbnet *dev)
@@ -1127,18 +1409,39 @@ static int marvell_phy_init(struct usbnet *dev)
 
 	if (data->ledmode) {
 		reg = asix_mdio_read(dev->net, dev->mii.phy_id,
-			MII_MARVELL_LED_CTRL);
+				MII_MARVELL_LED_CTRL);
 		netdev_dbg(dev->net, "MII_MARVELL_LED_CTRL (1) = 0x%04x\n", reg);
 
 		reg &= 0xf8ff;
 		reg |= (1 + 0x0100);
 		asix_mdio_write(dev->net, dev->mii.phy_id,
-			MII_MARVELL_LED_CTRL, reg);
+				MII_MARVELL_LED_CTRL, reg);
 
 		reg = asix_mdio_read(dev->net, dev->mii.phy_id,
-			MII_MARVELL_LED_CTRL);
+				MII_MARVELL_LED_CTRL);
 		netdev_dbg(dev->net, "MII_MARVELL_LED_CTRL (2) = 0x%04x\n", reg);
 		reg &= 0xfc0f;
+	}
+
+	return 0;
+}
+
+static int rtl8211cl_phy_init(struct usbnet *dev)
+{
+	struct asix_data *data = (struct asix_data *)&dev->data;
+
+	netdev_dbg(dev->net, "rtl8211cl_phy_init()\n");
+
+	asix_mdio_write (dev->net, dev->mii.phy_id, 0x1f, 0x0005);
+	asix_mdio_write (dev->net, dev->mii.phy_id, 0x0c, 0);
+	asix_mdio_write (dev->net, dev->mii.phy_id, 0x01,
+			asix_mdio_read (dev->net, dev->mii.phy_id, 0x01) | 0x0080);
+	asix_mdio_write (dev->net, dev->mii.phy_id, 0x1f, 0);
+
+	if (data->ledmode == 12) {
+		asix_mdio_write (dev->net, dev->mii.phy_id, 0x1f, 0x0002);
+		asix_mdio_write (dev->net, dev->mii.phy_id, 0x1a, 0x00cb);
+		asix_mdio_write (dev->net, dev->mii.phy_id, 0x1f, 0);
 	}
 
 	return 0;
@@ -1166,6 +1469,79 @@ static int marvell_led_status(struct usbnet *dev, u16 speed)
 
 	netdev_dbg(dev->net, "marvell_led_status() writing 0x%04x\n", reg);
 	asix_mdio_write(dev->net, dev->mii.phy_id, MARVELL_LED_MANUAL, reg);
+
+	return 0;
+}
+
+static int ax88178_reset(struct usbnet *dev)
+{
+	struct asix_data *data = (struct asix_data *)&dev->data;
+	int ret;
+	__le16 eeprom;
+	u8 status;
+	int gpio0 = 0;
+
+	asix_read_cmd(dev, AX_CMD_READ_GPIOS, 0, 0, 1, &status);
+	dbg("GPIO Status: 0x%04x", status);
+
+	asix_write_cmd(dev, AX_CMD_WRITE_ENABLE, 0, 0, 0, NULL);
+	asix_read_cmd(dev, AX_CMD_READ_EEPROM, 0x0017, 0, 2, &eeprom);
+	asix_write_cmd(dev, AX_CMD_WRITE_DISABLE, 0, 0, 0, NULL);
+
+	dbg("EEPROM index 0x17 is 0x%04x", eeprom);
+
+	if (eeprom == cpu_to_le16(0xffff)) {
+		data->phymode = PHY_MODE_MARVELL;
+		data->ledmode = 0;
+		gpio0 = 1;
+	} else {
+		data->phymode = le16_to_cpu(eeprom) & 7;
+		data->ledmode = le16_to_cpu(eeprom) >> 8;
+		gpio0 = (le16_to_cpu(eeprom) & 0x80) ? 0 : 1;
+	}
+	dbg("GPIO0: %d, PhyMode: %d", gpio0, data->phymode);
+
+	asix_write_gpio(dev, AX_GPIO_RSE | AX_GPIO_GPO_1 | AX_GPIO_GPO1EN, 40);
+	if ((le16_to_cpu(eeprom) >> 8) != 1) {
+		asix_write_gpio(dev, 0x003c, 30);
+		asix_write_gpio(dev, 0x001c, 300);
+		asix_write_gpio(dev, 0x003c, 30);
+	} else {
+		dbg("gpio phymode == 1 path");
+		asix_write_gpio(dev, AX_GPIO_GPO1EN, 30);
+		asix_write_gpio(dev, AX_GPIO_GPO1EN | AX_GPIO_GPO_1, 30);
+	}
+
+	asix_sw_reset(dev, 0);
+	msleep(150);
+
+	asix_sw_reset(dev, AX_SWRESET_PRL | AX_SWRESET_IPPD);
+	msleep(150);
+
+	asix_write_rx_ctl(dev, 0);
+
+	if (data->phymode == PHY_MODE_MARVELL) {
+		marvell_phy_init(dev);
+		msleep(60);
+	} else if (data->phymode == PHY_MODE_RTL8211CL)
+		rtl8211cl_phy_init(dev);
+
+	asix_mdio_write(dev->net, dev->mii.phy_id, MII_BMCR,
+			BMCR_RESET | BMCR_ANENABLE);
+	asix_mdio_write(dev->net, dev->mii.phy_id, MII_ADVERTISE,
+			ADVERTISE_ALL | ADVERTISE_CSMA | ADVERTISE_PAUSE_CAP);
+	asix_mdio_write(dev->net, dev->mii.phy_id, MII_CTRL1000,
+			ADVERTISE_1000FULL);
+
+	mii_nway_restart(&dev->mii);
+
+	ret = asix_write_medium_mode(dev, AX88178_MEDIUM_DEFAULT);
+	if (ret < 0)
+		return ret;
+
+	ret = asix_write_rx_ctl(dev, AX_DEFAULT_RX_CTL);
+	if (ret < 0)
+		return ret;
 
 	return 0;
 }
@@ -1199,7 +1575,7 @@ static int ax88178_link_reset(struct usbnet *dev)
 		mode &= ~AX_MEDIUM_FD;
 
 	netdev_dbg(dev->net, "ax88178_link_reset() speed: %u duplex: %d setting mode to 0x%04x\n",
-		   speed, ecmd.duplex, mode);
+			speed, ecmd.duplex, mode);
 
 	asix_write_medium_mode(dev, mode);
 
@@ -1271,67 +1647,24 @@ static const struct net_device_ops ax88178_netdev_ops = {
 	.ndo_tx_timeout		= usbnet_tx_timeout,
 	.ndo_set_mac_address 	= asix_set_mac_address,
 	.ndo_validate_addr	= eth_validate_addr,
-	.ndo_set_multicast_list = asix_set_multicast,
+	.ndo_set_rx_mode	= asix_set_multicast,
 	.ndo_do_ioctl 		= asix_ioctl,
 	.ndo_change_mtu 	= ax88178_change_mtu,
 };
 
 static int ax88178_bind(struct usbnet *dev, struct usb_interface *intf)
 {
-	struct asix_data *data = (struct asix_data *)&dev->data;
 	int ret;
 	u8 buf[ETH_ALEN];
-	__le16 eeprom;
-	u8 status;
-	int gpio0 = 0;
 	u32 phyid;
 
 	usbnet_get_endpoints(dev,intf);
 
-	asix_read_cmd(dev, AX_CMD_READ_GPIOS, 0, 0, 1, &status);
-	dbg("GPIO Status: 0x%04x", status);
-
-	asix_write_cmd(dev, AX_CMD_WRITE_ENABLE, 0, 0, 0, NULL);
-	asix_read_cmd(dev, AX_CMD_READ_EEPROM, 0x0017, 0, 2, &eeprom);
-	asix_write_cmd(dev, AX_CMD_WRITE_DISABLE, 0, 0, 0, NULL);
-
-	dbg("EEPROM index 0x17 is 0x%04x", eeprom);
-
-	if (eeprom == cpu_to_le16(0xffff)) {
-		data->phymode = PHY_MODE_MARVELL;
-		data->ledmode = 0;
-		gpio0 = 1;
-	} else {
-		data->phymode = le16_to_cpu(eeprom) & 7;
-		data->ledmode = le16_to_cpu(eeprom) >> 8;
-		gpio0 = (le16_to_cpu(eeprom) & 0x80) ? 0 : 1;
-	}
-	dbg("GPIO0: %d, PhyMode: %d", gpio0, data->phymode);
-
-	asix_write_gpio(dev, AX_GPIO_RSE | AX_GPIO_GPO_1 | AX_GPIO_GPO1EN, 40);
-	if ((le16_to_cpu(eeprom) >> 8) != 1) {
-		asix_write_gpio(dev, 0x003c, 30);
-		asix_write_gpio(dev, 0x001c, 300);
-		asix_write_gpio(dev, 0x003c, 30);
-	} else {
-		dbg("gpio phymode == 1 path");
-		asix_write_gpio(dev, AX_GPIO_GPO1EN, 30);
-		asix_write_gpio(dev, AX_GPIO_GPO1EN | AX_GPIO_GPO_1, 30);
-	}
-
-	asix_sw_reset(dev, 0);
-	msleep(150);
-
-	asix_sw_reset(dev, AX_SWRESET_PRL | AX_SWRESET_IPPD);
-	msleep(150);
-
-	asix_write_rx_ctl(dev, 0);
-
 	/* Get the MAC address */
-	if ((ret = asix_read_cmd(dev, AX_CMD_READ_NODE_ID,
-				0, 0, ETH_ALEN, buf)) < 0) {
+	ret = asix_read_cmd(dev, AX_CMD_READ_NODE_ID, 0, 0, ETH_ALEN, buf);
+	if (ret < 0) {
 		dbg("Failed to read MAC address: %d", ret);
-		goto out;
+		return ret;
 	}
 	memcpy(dev->net->dev_addr, buf, ETH_ALEN);
 
@@ -1350,25 +1683,9 @@ static int ax88178_bind(struct usbnet *dev, struct usb_interface *intf)
 	phyid = asix_get_phyid(dev);
 	dbg("PHYID=0x%08x", phyid);
 
-	if (data->phymode == PHY_MODE_MARVELL) {
-		marvell_phy_init(dev);
-		msleep(60);
-	}
-
-	asix_mdio_write(dev->net, dev->mii.phy_id, MII_BMCR,
-			BMCR_RESET | BMCR_ANENABLE);
-	asix_mdio_write(dev->net, dev->mii.phy_id, MII_ADVERTISE,
-			ADVERTISE_ALL | ADVERTISE_CSMA | ADVERTISE_PAUSE_CAP);
-	asix_mdio_write(dev->net, dev->mii.phy_id, MII_CTRL1000,
-			ADVERTISE_1000FULL);
-
-	mii_nway_restart(&dev->mii);
-
-	if ((ret = asix_write_medium_mode(dev, AX88178_MEDIUM_DEFAULT)) < 0)
-		goto out;
-
-	if ((ret = asix_write_rx_ctl(dev, AX_DEFAULT_RX_CTL)) < 0)
-		goto out;
+	ret = ax88178_reset(dev);
+	if (ret < 0)
+		return ret;
 
 	/* Asix framing packs multiple eth frames into a 2K usb bulk transfer */
 	if (dev->driver_info->flags & FLAG_FRAMING_AX) {
@@ -1376,10 +1693,8 @@ static int ax88178_bind(struct usbnet *dev, struct usb_interface *intf)
 		   jumbo eth frames */
 		dev->rx_urb_size = 2048;
 	}
-	return 0;
 
-out:
-	return ret;
+	return 0;
 }
 
 static const struct driver_info ax8817x_info = {
@@ -1427,9 +1742,20 @@ static const struct driver_info ax88772_info = {
 	.bind = ax88772_bind,
 	.status = asix_status,
 	.link_reset = ax88772_link_reset,
-	.reset = ax88772_link_reset,
+	.reset = ax88772_reset,
 	.flags = FLAG_ETHER | FLAG_FRAMING_AX | FLAG_LINK_INTR,
 	.rx_fixup = asix_rx_fixup,
+	.tx_fixup = asix_tx_fixup,
+};
+
+static const struct driver_info ax88772b_info = {
+	.description = "ASIX AX88772B USB 2.0 Ethernet",
+	.bind = ax88772b_bind,
+	.status = asix_status,
+	.link_reset = ax88772_link_reset,
+	.reset = ax88772b_reset,
+	.flags = FLAG_ETHER | FLAG_FRAMING_AX | FLAG_LINK_INTR,
+	.rx_fixup = ax88772b_rx_fixup,
 	.tx_fixup = asix_tx_fixup,
 };
 
@@ -1438,136 +1764,156 @@ static const struct driver_info ax88178_info = {
 	.bind = ax88178_bind,
 	.status = asix_status,
 	.link_reset = ax88178_link_reset,
-	.reset = ax88178_link_reset,
+	.reset = ax88178_reset,
 	.flags = FLAG_ETHER | FLAG_FRAMING_AX | FLAG_LINK_INTR,
 	.rx_fixup = asix_rx_fixup,
 	.tx_fixup = asix_tx_fixup,
 };
 
 static const struct usb_device_id	products [] = {
-{
-	// Linksys USB200M
-	USB_DEVICE (0x077b, 0x2226),
-	.driver_info =	(unsigned long) &ax8817x_info,
-}, {
-	// Netgear FA120
-	USB_DEVICE (0x0846, 0x1040),
-	.driver_info =  (unsigned long) &netgear_fa120_info,
-}, {
-	// DLink DUB-E100
-	USB_DEVICE (0x2001, 0x1a00),
-	.driver_info =  (unsigned long) &dlink_dub_e100_info,
-}, {
-	// Intellinet, ST Lab USB Ethernet
-	USB_DEVICE (0x0b95, 0x1720),
-	.driver_info =  (unsigned long) &ax8817x_info,
-}, {
-	// Hawking UF200, TrendNet TU2-ET100
-	USB_DEVICE (0x07b8, 0x420a),
-	.driver_info =  (unsigned long) &hawking_uf200_info,
-}, {
-	// Billionton Systems, USB2AR
-	USB_DEVICE (0x08dd, 0x90ff),
-	.driver_info =  (unsigned long) &ax8817x_info,
-}, {
-	// ATEN UC210T
-	USB_DEVICE (0x0557, 0x2009),
-	.driver_info =  (unsigned long) &ax8817x_info,
-}, {
-	// Buffalo LUA-U2-KTX
-	USB_DEVICE (0x0411, 0x003d),
-	.driver_info =  (unsigned long) &ax8817x_info,
-}, {
-	// Buffalo LUA-U2-GT 10/100/1000
-	USB_DEVICE (0x0411, 0x006e),
-	.driver_info =  (unsigned long) &ax88178_info,
-}, {
-	// Sitecom LN-029 "USB 2.0 10/100 Ethernet adapter"
-	USB_DEVICE (0x6189, 0x182d),
-	.driver_info =  (unsigned long) &ax8817x_info,
-}, {
-	// corega FEther USB2-TX
-	USB_DEVICE (0x07aa, 0x0017),
-	.driver_info =  (unsigned long) &ax8817x_info,
-}, {
-	// Surecom EP-1427X-2
-	USB_DEVICE (0x1189, 0x0893),
-	.driver_info = (unsigned long) &ax8817x_info,
-}, {
-	// goodway corp usb gwusb2e
-	USB_DEVICE (0x1631, 0x6200),
-	.driver_info = (unsigned long) &ax8817x_info,
-}, {
-	// JVC MP-PRX1 Port Replicator
-	USB_DEVICE (0x04f1, 0x3008),
-	.driver_info = (unsigned long) &ax8817x_info,
-}, {
-	// ASIX AX88772B 10/100
-	USB_DEVICE (0x0b95, 0x772b),
-	.driver_info = (unsigned long) &ax88772_info,
-}, {
-	// ASIX AX88772 10/100
-	USB_DEVICE (0x0b95, 0x7720),
-	.driver_info = (unsigned long) &ax88772_info,
-}, {
-	// ASIX AX88178 10/100/1000
-	USB_DEVICE (0x0b95, 0x1780),
-	.driver_info = (unsigned long) &ax88178_info,
-}, {
-	// Logitec LAN-GTJ/U2A
-	USB_DEVICE (0x0789, 0x0160),
-	.driver_info = (unsigned long) &ax88178_info,
-}, {
-	// Linksys USB200M Rev 2
-	USB_DEVICE (0x13b1, 0x0018),
-	.driver_info = (unsigned long) &ax88772_info,
-}, {
-	// 0Q0 cable ethernet
-	USB_DEVICE (0x1557, 0x7720),
-	.driver_info = (unsigned long) &ax88772_info,
-}, {
-	// DLink DUB-E100 H/W Ver B1
-	USB_DEVICE (0x07d1, 0x3c05),
-	.driver_info = (unsigned long) &ax88772_info,
-}, {
-	// DLink DUB-E100 H/W Ver B1 Alternate
-	USB_DEVICE (0x2001, 0x3c05),
-	.driver_info = (unsigned long) &ax88772_info,
-}, {
-	// Linksys USB1000
-	USB_DEVICE (0x1737, 0x0039),
-	.driver_info = (unsigned long) &ax88178_info,
-}, {
-	// IO-DATA ETG-US2
-	USB_DEVICE (0x04bb, 0x0930),
-	.driver_info = (unsigned long) &ax88178_info,
-}, {
-	// Belkin F5D5055
-	USB_DEVICE(0x050d, 0x5055),
-	.driver_info = (unsigned long) &ax88178_info,
-}, {
-	// Apple USB Ethernet Adapter
-	USB_DEVICE(0x05ac, 0x1402),
-	.driver_info = (unsigned long) &ax88772_info,
-}, {
-	// Cables-to-Go USB Ethernet Adapter
-	USB_DEVICE(0x0b95, 0x772a),
-	.driver_info = (unsigned long) &ax88772_info,
-}, {
-	// ABOCOM for pci
-	USB_DEVICE(0x14ea, 0xab11),
-	.driver_info = (unsigned long) &ax88178_info,
-}, {
-	// ASIX 88772a
-	USB_DEVICE(0x0db0, 0xa877),
-	.driver_info = (unsigned long) &ax88772_info,
-},
+	{
+		// Netgear FA120
+		USB_DEVICE (0x0846, 0x1040),
+		.driver_info =  (unsigned long) &netgear_fa120_info,
+	}, {
+		// DLink DUB-E100
+		USB_DEVICE (0x2001, 0x1a00),
+		.driver_info =  (unsigned long) &dlink_dub_e100_info,
+	}, {
+		// Hawking UF200, TrendNet TU2-ET100
+		USB_DEVICE (0x07b8, 0x420a),
+		.driver_info =  (unsigned long) &hawking_uf200_info,
+	}, {
+		// Dimoto
+		USB_DEVICE (0x1e51, 0x1000),
+		.driver_info =  (unsigned long) &ax8817x_info,
+	}, {
+		// ASIX AX88172A 10/100
+		USB_DEVICE (0x0b95, 0x172a),
+		.driver_info =  (unsigned long) &ax8817x_info,
+	}, {
+		// Billionton Systems, USB2AR
+		USB_DEVICE (0x08dd, 0x90ff),
+			   .driver_info =  (unsigned long) &ax8817x_info,
+	}, {
+		// Linksys USB200M
+		USB_DEVICE (0x077b, 0x2226),
+			   .driver_info =	(unsigned long) &ax8817x_info,
+	}, {
+		// Intellinet, ST Lab USB Ethernet
+		USB_DEVICE (0x0b95, 0x1720),
+			   .driver_info =  (unsigned long) &ax8817x_info,
+	}, {
+		// ATEN UC210T
+		USB_DEVICE (0x0557, 0x2009),
+			   .driver_info =  (unsigned long) &ax8817x_info,
+	}, {
+		// Buffalo LUA-U2-KTX
+		USB_DEVICE (0x0411, 0x003d),
+			   .driver_info =  (unsigned long) &ax8817x_info,
+	}, {
+		// Sitecom LN-029 "USB 2.0 10/100 Ethernet adapter"
+		USB_DEVICE (0x6189, 0x182d),
+			   .driver_info =  (unsigned long) &ax8817x_info,
+	}, {
+		// corega FEther USB2-TX
+		USB_DEVICE (0x07aa, 0x0017),
+			   .driver_info =  (unsigned long) &ax8817x_info,
+	}, {
+		// Surecom EP-1427X-2
+		USB_DEVICE (0x1189, 0x0893),
+			   .driver_info = (unsigned long) &ax8817x_info,
+	}, {
+		// goodway corp usb gwusb2e
+		USB_DEVICE (0x1631, 0x6200),
+			   .driver_info = (unsigned long) &ax8817x_info,
+	}, {
+		// JVC MP-PRX1 Port Replicator
+		USB_DEVICE (0x04f1, 0x3008),
+			   .driver_info = (unsigned long) &ax8817x_info,
+	}, {
+		// Buffalo LUA-U2-GT 10/100/1000
+		USB_DEVICE (0x0411, 0x006e),
+			   .driver_info =  (unsigned long) &ax88178_info,
+	}, {
+		// ASIX AX88178 10/100/1000
+		USB_DEVICE (0x0b95, 0x1780),
+			   .driver_info = (unsigned long) &ax88178_info,
+	}, {
+		// Logitec LAN-GTJ/U2A
+		USB_DEVICE (0x0789, 0x0160),
+			   .driver_info = (unsigned long) &ax88178_info,
+	}, {
+		// Linksys USB1000
+		USB_DEVICE (0x1737, 0x0039),
+			   .driver_info = (unsigned long) &ax88178_info,
+	}, {
+		// IO-DATA ETG-US2
+		USB_DEVICE (0x04bb, 0x0930),
+			   .driver_info = (unsigned long) &ax88178_info,
+	}, {
+		// Belkin F5D5055
+		USB_DEVICE(0x050d, 0x5055),
+			.driver_info = (unsigned long) &ax88178_info,
+	}, {
+		// ABOCOM for pci
+		USB_DEVICE(0x14ea, 0xab11),
+			.driver_info = (unsigned long) &ax88178_info,
+	}, {
+		// ASIX 88772a
+		USB_DEVICE(0x0db0, 0xa877),
+			.driver_info = (unsigned long) &ax88772_info,
+	}, {
+		// ASIX 88772a
+		USB_DEVICE(0x0421, 0x772a),
+			.driver_info = (unsigned long) &ax88772_info,
+	}, {
+		// Apple USB Ethernet Adapter
+		USB_DEVICE(0x05ac, 0x1402),
+			.driver_info = (unsigned long) &ax88772_info,
+	}, {
+		// Cables-to-Go USB Ethernet Adapter
+		USB_DEVICE(0x0b95, 0x772a),
+			.driver_info = (unsigned long) &ax88772_info,
+	}, {
+		// ASIX AX88772b 10/100
+		USB_DEVICE (0x0b95, 0x772b),
+			   .driver_info = (unsigned long) &ax88772b_info,
+	}, {
+		// ASIX AX88772b 10/100
+		USB_DEVICE (0x0b95, 0x7e2b),
+			   .driver_info = (unsigned long) &ax88772b_info,
+	}, {
+		// ASIX AX88772 10/100
+		USB_DEVICE (0x0b95, 0x7720),
+			   .driver_info = (unsigned long) &ax88772_info,
+	}, {
+		// ASIX AX88772 10/100
+		USB_DEVICE (0x125e, 0x180d),
+			   .driver_info = (unsigned long) &ax88772_info,
+	}, {
+		// Linksys USB200M Rev 2
+		USB_DEVICE (0x13b1, 0x0018),
+			   .driver_info = (unsigned long) &ax88772_info,
+	}, {
+		// 0Q0 cable ethernet
+		USB_DEVICE (0x1557, 0x7720),
+			   .driver_info = (unsigned long) &ax88772_info,
+	}, {
+		// DLink DUB-E100 H/W Ver B1
+		USB_DEVICE (0x07d1, 0x3c05),
+			   .driver_info = (unsigned long) &ax88772_info,
+	}, {
+		// DLink DUB-E100 H/W Ver B1 Alternate
+		USB_DEVICE (0x2001, 0x3c05),
+			   .driver_info = (unsigned long) &ax88772_info,
+	},
 	{ },		// END
 };
 MODULE_DEVICE_TABLE(usb, products);
 
 static struct usb_driver asix_driver = {
-	.name =		"asix",
+	.name =		DRIVER_NAME,
 	.id_table =	products,
 	.probe =	usbnet_probe,
 	.suspend =	usbnet_suspend,
@@ -1578,17 +1924,17 @@ static struct usb_driver asix_driver = {
 
 static int __init asix_init(void)
 {
- 	return usb_register(&asix_driver);
+	return usb_register(&asix_driver);
 }
 module_init(asix_init);
 
 static void __exit asix_exit(void)
 {
- 	usb_deregister(&asix_driver);
+	usb_deregister(&asix_driver);
 }
 module_exit(asix_exit);
 
 MODULE_AUTHOR("David Hollis");
+MODULE_VERSION(DRIVER_VERSION);
 MODULE_DESCRIPTION("ASIX AX8817X based USB 2.0 Ethernet Devices");
 MODULE_LICENSE("GPL");
-
